@@ -1,605 +1,665 @@
 <!DOCTYPE html>
 <html>
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width">
-<style>
-html, body {
-	margin: 0;
-	padding: 0;
-	height: 100%;
-	overflow: hidden;
-}
-body {
-    display: flex;
-    flex-direction: column;
-}
-#video {
-	height: 100%;
-	background: black;
-    flex-grow: 1;
-    min-height: 0;
-}
-#controls {
-    height: 200px;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-#device {
-    flex-direction: column;
-}
-#device > div {
-    margin: 10px 0;
-    display: flex;
-    gap: 20px;
-    justify-content: center;
-}
-select {
-    width: 200px;
-}
-</style>
-</head>
-<body>
-
-<video id="video" muted controls autoplay playsinline></video>
-<div id="controls">
-    <div id="initializing" style="display: block;">
-        initializing
-    </div>
-    <div id="device" style="display: none;">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+      }
+      #video {
+        height: 100%;
+        background: black;
+        flex-grow: 1;
+        min-height: 0;
+      }
+      #controls {
+        height: 200px;
+        flex-shrink: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #device {
+        flex-direction: column;
+      }
+      #device > div {
+        margin: 10px 0;
+        display: flex;
+        gap: 20px;
+        justify-content: center;
+      }
+      select {
+        width: 200px;
+      }
+    </style>
+  </head>
+  <body>
+    <video id="video" muted controls autoplay playsinline></video>
+    <div id="controls">
+      <div id="initializing" style="display: block">initializing</div>
+      <div id="device" style="display: none">
         <div id="device_line">
-            video device:
-            <select id="video_device">
-                <option value="none">none</option>
-            </select>
+          video device:
+          <select id="video_device">
+            <option value="none">none</option>
+          </select>
 
-            audio device:
-            <select id="audio_device">
-                <option value="none">none</option>
-            </select>
+          audio device:
+          <select id="audio_device">
+            <option value="none">none</option>
+          </select>
         </div>
         <div id="codec_line">
-            video codec:
-            <select id="video_codec">
-            </select>
+          video codec:
+          <select id="video_codec"></select>
 
-            audio codec:
-            <select id="audio_codec">
-            </select>
+          audio codec:
+          <select id="audio_codec"></select>
         </div>
         <div id="bitrate_line">
-            video bitrate (kbps):
-            <input id="video_bitrate" type="text" value="10000" />
+          video bitrate (kbps):
+          <input id="video_bitrate" type="text" value="10000" />
 
-            audio bitrate (kbps):
-            <input id="audio_bitrate" type="text" value="32" />
+          audio bitrate (kbps):
+          <input id="audio_bitrate" type="text" value="32" />
 
-            <div>
-                <input id="audio_voice" type="checkbox" checked>
-                <label for="audio_voice">optimize for voice</label>
-            </div>
+          <div>
+            <input id="audio_voice" type="checkbox" checked />
+            <label for="audio_voice">optimize for voice</label>
+          </div>
         </div>
         <div id="submit_line">
-            <button id="publish_confirm">publish</button>
+          <button id="publish_confirm">publish</button>
         </div>
-    </div>
-    <div id="transmitting" style="display: none;">
-        publishing
-    </div>
-    <div id="error" style="display: none;">
+      </div>
+      <div id="transmitting" style="display: none">publishing</div>
+      <div id="error" style="display: none">
         <span id="error-message"></span>
+      </div>
     </div>
-</div>
 
-<script>
+    <script>
+      const INITIALIZING = 0;
+      const DEVICE = 1;
+      const TRANSMITTING = 2;
+      const ERROR = 3;
 
-const INITIALIZING = 0;
-const DEVICE = 1;
-const TRANSMITTING = 2;
-const ERROR = 3;
+      let state = INITIALIZING;
+      let errorMessage = "";
 
-let state = INITIALIZING;
-let errorMessage = '';
+      const render = () => {
+        for (const el of ["initializing", "device", "transmitting", "error"]) {
+          document.getElementById(el).style.display = "none";
+        }
 
-const render = () => {
-    for (const el of ['initializing', 'device', 'transmitting', 'error']) {
-        document.getElementById(el).style.display = 'none';
-    }
+        switch (state) {
+          case DEVICE:
+            document.getElementById("device").style.display = "flex";
+            break;
 
-    switch (state) {
-    case DEVICE:
-        document.getElementById('device').style.display = 'flex';
-        break;
+          case TRANSMITTING:
+            document.getElementById("transmitting").style.display = "flex";
+            break;
 
-    case TRANSMITTING:
-        document.getElementById('transmitting').style.display = 'flex';
-        break;
+          case ERROR:
+            document.getElementById("error").style.display = "flex";
+            document.getElementById("error-message").innerHTML =
+              "error: " + errorMessage;
+            break;
+        }
+      };
 
-    case ERROR:
-        document.getElementById('error').style.display = 'flex';
-        document.getElementById('error-message').innerHTML = 'error: ' + errorMessage;
-        break;
-    }
-};
+      const restartPause = 2000;
 
-const restartPause = 2000;
+      const unquoteCredential = (v) => JSON.parse(`"${v}"`);
 
-const unquoteCredential = (v) => (
-    JSON.parse(`"${v}"`)
-);
+      const linkToIceServers = (links) =>
+        links !== null
+          ? links.split(", ").map((link) => {
+              const m = link.match(
+                /^<(.+?)>; rel="ice-server"(; username="(.*?)"; credential="(.*?)"; credential-type="password")?/i
+              );
+              const ret = {
+                urls: [m[1]],
+              };
 
-const linkToIceServers = (links) => (
-    (links !== null) ? links.split(', ').map((link) => {
-        const m = link.match(/^<(.+?)>; rel="ice-server"(; username="(.*?)"; credential="(.*?)"; credential-type="password")?/i);
+              if (m[3] !== undefined) {
+                ret.username = unquoteCredential(m[3]);
+                ret.credential = unquoteCredential(m[4]);
+                ret.credentialType = "password";
+              }
+
+              return ret;
+            })
+          : [];
+
+      const parseOffer = (offer) => {
         const ret = {
-            urls: [m[1]],
+          iceUfrag: "",
+          icePwd: "",
+          medias: [],
         };
 
-        if (m[3] !== undefined) {
-            ret.username = unquoteCredential(m[3]);
-            ret.credential = unquoteCredential(m[4]);
-            ret.credentialType = "password";
+        for (const line of offer.split("\r\n")) {
+          if (line.startsWith("m=")) {
+            ret.medias.push(line.slice("m=".length));
+          } else if (ret.iceUfrag === "" && line.startsWith("a=ice-ufrag:")) {
+            ret.iceUfrag = line.slice("a=ice-ufrag:".length);
+          } else if (ret.icePwd === "" && line.startsWith("a=ice-pwd:")) {
+            ret.icePwd = line.slice("a=ice-pwd:".length);
+          }
         }
 
         return ret;
-    }) : []
-);
+      };
 
-const parseOffer = (offer) => {
-    const ret = {
-        iceUfrag: '',
-        icePwd: '',
-        medias: [],
-    };
-
-    for (const line of offer.split('\r\n')) {
-        if (line.startsWith('m=')) {
-            ret.medias.push(line.slice('m='.length));
-        } else if (ret.iceUfrag === '' && line.startsWith('a=ice-ufrag:')) {
-            ret.iceUfrag = line.slice('a=ice-ufrag:'.length);
-        } else if (ret.icePwd === '' && line.startsWith('a=ice-pwd:')) {
-            ret.icePwd = line.slice('a=ice-pwd:'.length);
-        }
-    }
-
-    return ret;
-};
-
-const generateSdpFragment = (offerData, candidates) => {
-    const candidatesByMedia = {};
-    for (const candidate of candidates) {
-        const mid = candidate.sdpMLineIndex;
-        if (candidatesByMedia[mid] === undefined) {
+      const generateSdpFragment = (offerData, candidates) => {
+        const candidatesByMedia = {};
+        for (const candidate of candidates) {
+          const mid = candidate.sdpMLineIndex;
+          if (candidatesByMedia[mid] === undefined) {
             candidatesByMedia[mid] = [];
+          }
+          candidatesByMedia[mid].push(candidate);
         }
-        candidatesByMedia[mid].push(candidate);
-    }
 
-    let frag = 'a=ice-ufrag:' + offerData.iceUfrag + '\r\n'
-        + 'a=ice-pwd:' + offerData.icePwd + '\r\n';
+        let frag =
+          "a=ice-ufrag:" +
+          offerData.iceUfrag +
+          "\r\n" +
+          "a=ice-pwd:" +
+          offerData.icePwd +
+          "\r\n";
 
-    let mid = 0;
+        let mid = 0;
 
-    for (const media of offerData.medias) {
-        if (candidatesByMedia[mid] !== undefined) {
-            frag += 'm=' + media + '\r\n'
-                + 'a=mid:' + mid + '\r\n';
+        for (const media of offerData.medias) {
+          if (candidatesByMedia[mid] !== undefined) {
+            frag += "m=" + media + "\r\n" + "a=mid:" + mid + "\r\n";
 
             for (const candidate of candidatesByMedia[mid]) {
-                frag += 'a=' + candidate.candidate + '\r\n';
+              frag += "a=" + candidate.candidate + "\r\n";
             }
+          }
+          mid++;
         }
-        mid++;
-    }
 
-    return frag;
-};
+        return frag;
+      };
 
-const setCodec = (section, codec) => {
-    const lines = section.split('\r\n');
-    const lines2 = [];
-    const payloadFormats = [];
+      const setCodec = (section, codec) => {
+        const lines = section.split("\r\n");
+        const lines2 = [];
+        const payloadFormats = [];
 
-    for (const line of lines) {
-        if (!line.startsWith('a=rtpmap:')) {
+        for (const line of lines) {
+          if (!line.startsWith("a=rtpmap:")) {
             lines2.push(line);
-        } else {
+          } else {
             if (line.toLowerCase().includes(codec)) {
-                payloadFormats.push(line.slice('a=rtpmap:'.length).split(' ')[0]);
-                lines2.push(line);
+              payloadFormats.push(line.slice("a=rtpmap:".length).split(" ")[0]);
+              lines2.push(line);
             }
+          }
         }
-    }
 
-    const lines3 = [];
+        const lines3 = [];
 
-    for (const line of lines2) {
-        if (line.startsWith('a=fmtp:')) {
-            if (payloadFormats.includes(line.slice('a=fmtp:'.length).split(' ')[0])) {
-                lines3.push(line);
+        for (const line of lines2) {
+          if (line.startsWith("a=fmtp:")) {
+            if (
+              payloadFormats.includes(
+                line.slice("a=fmtp:".length).split(" ")[0]
+              )
+            ) {
+              lines3.push(line);
             }
-        } else if (line.startsWith('a=rtcp-fb:')) {
-            if (payloadFormats.includes(line.slice('a=rtcp-fb:'.length).split(' ')[0])) {
-                lines3.push(line);
+          } else if (line.startsWith("a=rtcp-fb:")) {
+            if (
+              payloadFormats.includes(
+                line.slice("a=rtcp-fb:".length).split(" ")[0]
+              )
+            ) {
+              lines3.push(line);
             }
-        } else {
+          } else {
             lines3.push(line);
+          }
         }
-    }
 
-    return lines3.join('\r\n');
-};
+        return lines3.join("\r\n");
+      };
 
-const setVideoBitrate = (section, bitrate) => {
-    let lines = section.split('\r\n');
+      const setVideoBitrate = (section, bitrate) => {
+        let lines = section.split("\r\n");
 
-    for (let i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith('c=')) {
-            lines = [...lines.slice(0, i+1), 'b=TIAS:' + (parseInt(bitrate) * 1024).toString(), ...lines.slice(i+1)];
-            break
-        }
-    }
-
-    return lines.join('\r\n');
-};
-
-const setAudioBitrate = (section, bitrate, voice) => {
-    let opusPayloadFormat = '';
-    let lines = section.split('\r\n');
-
-    for (let i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith('a=rtpmap:') && lines[i].toLowerCase().includes('opus/')) {
-            opusPayloadFormat = lines[i].slice('a=rtpmap:'.length).split(' ')[0];
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].startsWith("c=")) {
+            lines = [
+              ...lines.slice(0, i + 1),
+              "b=TIAS:" + (parseInt(bitrate) * 1024).toString(),
+              ...lines.slice(i + 1),
+            ];
             break;
+          }
         }
-    }
 
-    if (opusPayloadFormat === '') {
-        return section;
-    }
+        return lines.join("\r\n");
+      };
 
-    for (let i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith('a=fmtp:' + opusPayloadFormat + ' ')) {
+      const setAudioBitrate = (section, bitrate, voice) => {
+        let opusPayloadFormat = "";
+        let lines = section.split("\r\n");
+
+        for (let i = 0; i < lines.length; i++) {
+          if (
+            lines[i].startsWith("a=rtpmap:") &&
+            lines[i].toLowerCase().includes("opus/")
+          ) {
+            opusPayloadFormat = lines[i]
+              .slice("a=rtpmap:".length)
+              .split(" ")[0];
+            break;
+          }
+        }
+
+        if (opusPayloadFormat === "") {
+          return section;
+        }
+
+        for (let i = 0; i < lines.length; i++) {
+          if (lines[i].startsWith("a=fmtp:" + opusPayloadFormat + " ")) {
             if (voice) {
-                lines[i] = 'a=fmtp:' + opusPayloadFormat + ' minptime=10;useinbandfec=1;maxaveragebitrate='
-                    + (parseInt(bitrate) * 1024).toString();
+              lines[i] =
+                "a=fmtp:" +
+                opusPayloadFormat +
+                " minptime=10;useinbandfec=1;maxaveragebitrate=" +
+                (parseInt(bitrate) * 1024).toString();
             } else {
-                lines[i] = 'a=fmtp:' + opusPayloadFormat + ' maxplaybackrate=48000;stereo=1;sprop-stereo=1;maxaveragebitrate'
-                    + (parseInt(bitrate) * 1024).toString();
+              lines[i] =
+                "a=fmtp:" +
+                opusPayloadFormat +
+                " maxplaybackrate=48000;stereo=1;sprop-stereo=1;maxaveragebitrate" +
+                (parseInt(bitrate) * 1024).toString();
             }
+          }
         }
-    }
 
-    return lines.join('\r\n');
-};
+        return lines.join("\r\n");
+      };
 
-const editAnswer = (answer, videoCodec, audioCodec, videoBitrate, audioBitrate, audioVoice) => {
-    const sections = answer.split('m=');
+      const editAnswer = (
+        answer,
+        videoCodec,
+        audioCodec,
+        videoBitrate,
+        audioBitrate,
+        audioVoice
+      ) => {
+        const sections = answer.split("m=");
 
-    for (let i = 0; i < sections.length; i++) {
-        const section = sections[i];
-        if (section.startsWith('video')) {
-            sections[i] = setVideoBitrate(setCodec(section, videoCodec), videoBitrate);
-        } else if (section.startsWith('audio')) {
-            sections[i] = setAudioBitrate(setCodec(section, audioCodec), audioBitrate, audioVoice);
+        for (let i = 0; i < sections.length; i++) {
+          const section = sections[i];
+          if (section.startsWith("video")) {
+            sections[i] = setVideoBitrate(
+              setCodec(section, videoCodec),
+              videoBitrate
+            );
+          } else if (section.startsWith("audio")) {
+            sections[i] = setAudioBitrate(
+              setCodec(section, audioCodec),
+              audioBitrate,
+              audioVoice
+            );
+          }
         }
-    }
 
-    return sections.join('m=');
-};
+        return sections.join("m=");
+      };
 
-class Transmitter {
-    constructor(stream) {
-        this.stream = stream;
-		this.pc = null;
-		this.restartTimeout = null;
-        this.eTag = '';
-        this.queuedCandidates = [];
-		this.start();
-    }
+      class Transmitter {
+        constructor(stream) {
+          this.stream = stream;
+          this.pc = null;
+          this.restartTimeout = null;
+          this.eTag = "";
+          this.queuedCandidates = [];
+          this.start();
+        }
 
-    start() {
-        console.log("requesting ICE servers");
-
-        fetch(new URL('whip', window.location.href) + window.location.search, {
-            method: 'OPTIONS',
-        })
-            .then((res) => this.onIceServers(res))
+        start() {
+          console.log("requesting ICE servers");
+          console.log(window.location.href);
+          console.log(window.location.search);
+          fetch(
+            new URL("whip", window.location.href) + window.location.search,
+            {
+              method: "OPTIONS",
+            }
+          )
+            .then((res) => this.onIceServers(res)) // create peer connection and offer
             .catch((err) => {
-                console.log('error: ' + err);
-                this.scheduleRestart();
+              console.log("error: " + err);
+              this.scheduleRestart();
             });
-    }
+        }
 
-    onIceServers(res) {
-        this.pc = new RTCPeerConnection({
-            iceServers: linkToIceServers(res.headers.get('Link')),
-        });
+        onIceServers(res) {
+          this.pc = new RTCPeerConnection({
+            iceServers: linkToIceServers(res.headers.get("Link")),
+          });
 
-        this.pc.onicecandidate = (evt) => this.onLocalCandidate(evt);
-        this.pc.oniceconnectionstatechange = () => this.onConnectionState();
+          this.pc.onicecandidate = (evt) => this.onLocalCandidate(evt);
+          this.pc.oniceconnectionstatechange = () => this.onConnectionState();
 
-        this.stream.getTracks().forEach((track) => {
+          this.stream.getTracks().forEach((track) => {
             this.pc.addTrack(track, this.stream);
-        });
+          });
 
-        this.pc.createOffer()
-            .then((offer) => this.onLocalOffer(offer));
-    }
+          this.pc.createOffer().then((offer) => this.onLocalOffer(offer));
+        }
 
-    onLocalOffer(offer) {
-        this.offerData = parseOffer(offer.sdp);
-        this.pc.setLocalDescription(offer);
+        onLocalOffer(offer) {
+          this.offerData = parseOffer(offer.sdp);
+          this.pc.setLocalDescription(offer);
 
-        console.log("sending offer");
+          console.log("sending offer");
 
-        fetch(new URL('whip', window.location.href) + window.location.search, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/sdp',
-            },
-            body: offer.sdp,
-        })
+          fetch(
+            new URL("whip", window.location.href) + window.location.search,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/sdp",
+              },
+              body: offer.sdp,
+            }
+          )
             .then((res) => {
-                if (res.status !== 201) {
-                    throw new Error('bad status code');
-                }
-                this.eTag = res.headers.get('E-Tag');
-                return res.text();
+              if (res.status !== 201) {
+                throw new Error("bad status code");
+              }
+              this.eTag = res.headers.get("E-Tag");
+              return res.text();
             })
-            .then((sdp) => this.onRemoteAnswer(new RTCSessionDescription({
-                type: 'answer',
-                sdp,
-            })))
+            .then((sdp) =>
+              this.onRemoteAnswer(
+                new RTCSessionDescription({
+                  type: "answer",
+                  sdp,
+                })
+              )
+            )
             .catch((err) => {
-                console.log('error: ' + err);
-                this.scheduleRestart();
+              console.log("error: " + err);
+              this.scheduleRestart();
             });
-    }
+        }
 
-    onConnectionState() {
-        if (this.restartTimeout !== null) {
+        onConnectionState() {
+          if (this.restartTimeout !== null) {
             return;
+          }
+
+          console.log("peer connection state:", this.pc.iceConnectionState);
+
+          switch (this.pc.iceConnectionState) {
+            case "disconnected":
+              this.scheduleRestart();
+          }
         }
 
-        console.log("peer connection state:", this.pc.iceConnectionState);
+        onRemoteAnswer(answer) {
+          if (this.restartTimeout !== null) {
+            return;
+          }
 
-        switch (this.pc.iceConnectionState) {
-        case "disconnected":
-            this.scheduleRestart();
-        }
-    }
-
-    onRemoteAnswer(answer) {
-		if (this.restartTimeout !== null) {
-			return;
-		}
-
-        answer = new RTCSessionDescription({
-            type: 'answer',
+          answer = new RTCSessionDescription({
+            type: "answer",
             sdp: editAnswer(
-                answer.sdp,
-                document.getElementById('video_codec').value,
-                document.getElementById('audio_codec').value,
-                document.getElementById('video_bitrate').value,
-                document.getElementById('audio_bitrate').value,
-                document.getElementById('audio_voice').value,
+              answer.sdp,
+              document.getElementById("video_codec").value,
+              document.getElementById("audio_codec").value,
+              document.getElementById("video_bitrate").value,
+              document.getElementById("audio_bitrate").value,
+              document.getElementById("audio_voice").value
             ),
-        });
+          });
 
-        this.pc.setRemoteDescription(new RTCSessionDescription(answer));
+          this.pc.setRemoteDescription(new RTCSessionDescription(answer));
 
-        if (this.queuedCandidates.length !== 0) {
+          if (this.queuedCandidates.length !== 0) {
             this.sendLocalCandidates(this.queuedCandidates);
             this.queuedCandidates = [];
+          }
         }
-	}
 
-    onLocalCandidate(evt) {
-        if (this.restartTimeout !== null) {
+        onLocalCandidate(evt) {
+          if (this.restartTimeout !== null) {
             return;
-        }
+          }
 
-        if (evt.candidate !== null) {
-            if (this.eTag === '') {
-                this.queuedCandidates.push(evt.candidate);
+          if (evt.candidate !== null) {
+            if (this.eTag === "") {
+              this.queuedCandidates.push(evt.candidate);
             } else {
-                this.sendLocalCandidates([evt.candidate])
+              this.sendLocalCandidates([evt.candidate]);
             }
+          }
         }
-    }
 
-    sendLocalCandidates(candidates) {
-        fetch(new URL('whip', window.location.href) + window.location.search, {
-            method: 'PATCH',
-            headers: {
-                'Content-Type': 'application/trickle-ice-sdpfrag',
-                'If-Match': this.eTag,
-            },
-            body: generateSdpFragment(this.offerData, candidates),
-        })
+        sendLocalCandidates(candidates) {
+          fetch(
+            new URL("whip", window.location.href) + window.location.search,
+            {
+              method: "PATCH",
+              headers: {
+                "Content-Type": "application/trickle-ice-sdpfrag",
+                "If-Match": this.eTag,
+              },
+              body: generateSdpFragment(this.offerData, candidates),
+            }
+          )
             .then((res) => {
-                if (res.status !== 204) {
-                    throw new Error('bad status code');
-                }
+              if (res.status !== 204) {
+                throw new Error("bad status code");
+              }
             })
             .catch((err) => {
-                console.log('error: ' + err);
-                this.scheduleRestart();
+              console.log("error: " + err);
+              this.scheduleRestart();
             });
-    }
-
-    scheduleRestart() {
-        if (this.restartTimeout !== null) {
-            return;
         }
 
-        if (this.pc !== null) {
+        scheduleRestart() {
+          if (this.restartTimeout !== null) {
+            return;
+          }
+
+          if (this.pc !== null) {
             this.pc.close();
             this.pc = null;
-        }
+          }
 
-        this.restartTimeout = window.setTimeout(() => {
+          this.restartTimeout = window.setTimeout(() => {
             this.restartTimeout = null;
             this.start();
-        }, restartPause);
+          }, restartPause);
 
-        this.eTag = '';
-        this.queuedCandidates = [];
-    }
-}
+          this.eTag = "";
+          this.queuedCandidates = [];
+        }
+      }
 
-const onTransmit = (stream) => {
-    state = TRANSMITTING;
-    render();
-    document.getElementById('video').srcObject = stream;
-    new Transmitter(stream);
-};
+      const onTransmit = (stream) => {
+        state = TRANSMITTING;
+        render();
+        document.getElementById("video").srcObject = stream;
+        new Transmitter(stream);
+      };
 
-const onPublish = () => {
-    const videoId = document.getElementById('video_device').value;
-    const audioId = document.getElementById('audio_device').value;
+      const onPublish = () => {
+        const videoId = document.getElementById("video_device").value;
+        const audioId = document.getElementById("audio_device").value;
 
-    if (videoId !== 'screen') {
-        let video = false;
-        if (videoId !== 'none') {
+        if (videoId !== "screen") {
+          let video = false;
+          if (videoId !== "none") {
             video = {
-                deviceId: videoId,
+              deviceId: videoId,
             };
-        }
+          }
 
-        let audio = false;
+          let audio = false;
 
-        if (audioId !== 'none') {
+          if (audioId !== "none") {
             audio = {
-                deviceId: audioId,
+              deviceId: audioId,
             };
 
-            const voice = document.getElementById('audio_voice').checked;
+            const voice = document.getElementById("audio_voice").checked;
             if (!voice) {
-                audio.autoGainControl = false;
-                audio.echoCancellation = false;
-                audio.noiseSuppression = false;
+              audio.autoGainControl = false;
+              audio.echoCancellation = false;
+              audio.noiseSuppression = false;
             }
-        }
+          }
 
-        navigator.mediaDevices.getUserMedia({ video, audio })
+          navigator.mediaDevices
+            .getUserMedia({ video, audio })
             .then(onTransmit);
-    } else {
-        navigator.mediaDevices.getDisplayMedia({
-            video: {
+        } else {
+          navigator.mediaDevices
+            .getDisplayMedia({
+              video: {
                 width: { ideal: 1920 },
                 height: { ideal: 1080 },
                 frameRate: { ideal: 30 },
                 cursor: "always",
-            },
-            audio: false,
-        })
+              },
+              audio: false,
+            })
             .then(onTransmit);
-    }
-};
+        }
+      };
 
-const populateDevices = () => {
-    return navigator.mediaDevices.enumerateDevices()
-        .then((devices) => {
-            for (const device of devices) {
-                switch (device.kind) {
-                case 'videoinput':
-                    {
-                        const opt = document.createElement('option');
-                        opt.value = device.deviceId;
-                        opt.text = device.label;
-                        document.getElementById('video_device').appendChild(opt);
-                    }
-                    break;
-
-                case 'audioinput':
-                    {
-                        const opt = document.createElement('option');
-                        opt.value = device.deviceId;
-                        opt.text = device.label;
-                        document.getElementById('audio_device').appendChild(opt);
-                    }
-                    break;
+      const populateDevices = () => {
+        return navigator.mediaDevices.enumerateDevices().then((devices) => {
+          for (const device of devices) {
+            switch (device.kind) {
+              case "videoinput":
+                {
+                  const opt = document.createElement("option");
+                  opt.value = device.deviceId;
+                  opt.text = device.label;
+                  document.getElementById("video_device").appendChild(opt);
                 }
-            }
+                break;
 
-            // add screen
-            const opt = document.createElement('option');
-            opt.value = "screen";
-            opt.text = "screen";
-            document.getElementById('video_device').appendChild(opt);
-
-            // set default
-            document.getElementById('video_device').value = document.getElementById('video_device').children[1].value;
-            if (document.getElementById('audio_device').children.length > 1) {
-                document.getElementById('audio_device').value = document.getElementById('audio_device').children[1].value;
+              case "audioinput":
+                {
+                  const opt = document.createElement("option");
+                  opt.value = device.deviceId;
+                  opt.text = device.label;
+                  document.getElementById("audio_device").appendChild(opt);
+                }
+                break;
             }
+          }
+
+          // add screen
+          const opt = document.createElement("option");
+          opt.value = "screen";
+          opt.text = "screen";
+          document.getElementById("video_device").appendChild(opt);
+
+          // set default
+          document.getElementById("video_device").value =
+            document.getElementById("video_device").children[1].value;
+          if (document.getElementById("audio_device").children.length > 1) {
+            document.getElementById("audio_device").value =
+              document.getElementById("audio_device").children[1].value;
+          }
         });
-};
+      };
 
-const populateCodecs = () => {
-    const pc = new RTCPeerConnection({});
-    pc.addTransceiver("video", { direction: 'sendonly' });
-    pc.addTransceiver("audio", { direction: 'sendonly' });
+      const populateCodecs = () => {
+        const pc = new RTCPeerConnection({});
+        pc.addTransceiver("video", { direction: "sendonly" });
+        pc.addTransceiver("audio", { direction: "sendonly" });
 
-    return pc.createOffer()
-        .then((desc) => {
-            const sdp = desc.sdp.toLowerCase();
+        return pc.createOffer().then((desc) => {
+          const sdp = desc.sdp.toLowerCase();
 
-            for (const codec of ['av1/90000', 'vp9/90000', 'vp8/90000', 'h264/90000']) {
-                if (sdp.includes(codec)) {
-                    const opt = document.createElement('option');
-                    opt.value = codec;
-                    opt.text = codec.split('/')[0].toUpperCase();
-                    document.getElementById('video_codec').appendChild(opt);
-                }
+          for (const codec of [
+            "av1/90000",
+            "vp9/90000",
+            "vp8/90000",
+            "h264/90000",
+          ]) {
+            if (sdp.includes(codec)) {
+              const opt = document.createElement("option");
+              opt.value = codec;
+              opt.text = codec.split("/")[0].toUpperCase();
+              document.getElementById("video_codec").appendChild(opt);
             }
+          }
 
-            for (const codec of ['opus/48000', 'g722/8000', 'pcmu/8000', 'pcma/8000']) {
-                if (sdp.includes(codec)) {
-                    const opt = document.createElement('option');
-                    opt.value = codec;
-                    opt.text = codec.split('/')[0].toUpperCase();
-                    document.getElementById('audio_codec').appendChild(opt);
-                }
+          for (const codec of [
+            "opus/48000",
+            "g722/8000",
+            "pcmu/8000",
+            "pcma/8000",
+          ]) {
+            if (sdp.includes(codec)) {
+              const opt = document.createElement("option");
+              opt.value = codec;
+              opt.text = codec.split("/")[0].toUpperCase();
+              document.getElementById("audio_codec").appendChild(opt);
             }
+          }
 
-            pc.close();
+          pc.close();
         });
-};
+      };
 
-const initialize = () => {
-    if (navigator.mediaDevices === undefined) {
-        state = ERROR;
-        errorMessage = 'can\'t access webcams or microphones. Make sure that WebRTC encryption is enabled.';
-        render();
-        return;
-    }
+      const initialize = () => {
+        if (navigator.mediaDevices === undefined) {
+          state = ERROR;
+          errorMessage =
+            "can't access webcams or microphones. Make sure that WebRTC encryption is enabled.";
+          render();
+          return;
+        }
 
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true })
-        .then(() => Promise.all([
-            populateDevices(),
-            populateCodecs(),
-        ]))
-        .then(() => {
+        navigator.mediaDevices
+          .getUserMedia({ video: true, audio: true })
+          .then(() => Promise.all([populateDevices(), populateCodecs()]))
+          .then(() => {
             state = DEVICE;
             render();
-        })
-        .catch((err) => {
+          })
+          .catch((err) => {
             state = ERROR;
             errorMessage = err.toString();
             render();
-        });
-};
+          });
+      };
 
-document.getElementById("publish_confirm").addEventListener('click', onPublish);
+      document
+        .getElementById("publish_confirm")
+        .addEventListener("click", onPublish);
 
-initialize();
-
-</script>
-
-</body>
+      initialize();
+    </script>
+  </body>
 </html>

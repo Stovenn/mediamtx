@@ -100,6 +100,11 @@ func newWebRTCIncomingTrack(
 
 func (t *webRTCIncomingTrack) start(stream *stream.Stream) {
 	go func() {
+		// w, err := h264writer.New("streams/test.h264")
+		// if err != nil {
+		// 	panic(err)
+		// }
+		// defer w.Close()
 		for {
 			pkt, _, err := t.track.ReadRTP()
 			if err != nil {
@@ -112,6 +117,11 @@ func (t *webRTCIncomingTrack) start(stream *stream.Stream) {
 			}
 
 			stream.WriteRTPPacket(t.media, t.format, pkt, time.Now())
+
+			// err = w.WriteRTP(pkt)
+			// if err != nil {
+			// 	continue
+			// }
 		}
 	}()
 
