@@ -212,9 +212,13 @@ webrtcICEServers2:
   # the secret must be inserted into the password field.
   username: ''
   password: ''
+
+- url: turn:13.39.156.102:3478
+  username: turn
+  password: turn123
 # List of public IP addresses that are to be used as a host.
 # This is used typically for servers that are behind 1:1 D-NAT.
-webrtcICEHostNAT1To1IPs: [15.188.64.151]
+webrtcICEHostNAT1To1IPs: [35.180.120.145]
 # Address of a ICE UDP listener in format host:port.
 # If filled, ICE traffic will pass through a single UDP port,
 # allowing the deployment of the server inside a container or behind a NAT.
