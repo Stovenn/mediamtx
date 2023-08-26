@@ -275,6 +275,12 @@ type webRTCManagerParent interface {
 	logger.Writer
 }
 
+type Room struct {
+	
+	id       string
+	sessions map[*webRTCSession]struct{}
+}
+
 type webRTCManager struct {
 	allowOrigin     string
 	trustedProxies  conf.IPsOrCIDRs
@@ -290,6 +296,7 @@ type webRTCManager struct {
 	udpMuxLn         net.PacketConn
 	tcpMuxLn         net.Listener
 	api              *webrtc.API
+	rooms            map[string]*Room
 	sessions         map[*webRTCSession]struct{}
 	sessionsBySecret map[uuid.UUID]*webRTCSession
 
@@ -334,6 +341,7 @@ func newWebRTCManager(
 		parent:                 parent,
 		ctx:                    ctx,
 		ctxCancel:              ctxCancel,
+		rooms:                  make(map[string]*Room),
 		sessions:               make(map[*webRTCSession]struct{}),
 		sessionsBySecret:       make(map[uuid.UUID]*webRTCSession),
 		chNewSession:           make(chan webRTCNewSessionReq),

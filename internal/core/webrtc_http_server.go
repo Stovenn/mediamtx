@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v3"
 
 	"github.com/bluenviron/mediamtx/internal/conf"
@@ -68,6 +69,7 @@ func newWebRTCHTTPServer( //nolint:dupl
 
 	router := gin.New()
 	router.SetTrustedProxies(trustedProxies.ToTrustedProxies()) //nolint:errcheck
+	router.GET("/ws", wsHandler)
 	router.NoRoute(s.onRequest)
 
 	network, address := restrictNetwork("tcp", address)
@@ -87,6 +89,23 @@ func newWebRTCHTTPServer( //nolint:dupl
 	}
 
 	return s, nil
+}
+
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+}
+
+func wsHandler(c *gin.Context) {
+	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+	defer conn.Close()
+	for {
+		conn.WriteMessage(websocket.TextMessage, []byte("Hello, WebSocket!"))
+		time.Sleep(time.Second)
+	}
 }
 
 func (s *webRTCHTTPServer) Log(level logger.Level, format string, args ...interface{}) {
