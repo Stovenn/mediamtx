@@ -38,14 +38,14 @@ udpMaxPayloadSize: 1472
 externalAuthenticationURL:
 
 # Enable the HTTP API.
-api: no
+api: yes
 # Address of the API listener.
-apiAddress: 127.0.0.1:9997
+apiAddress: :9997
 
 # Enable Prometheus-compatible metrics.
-metrics: no
+metrics: yes
 # Address of the metrics listener.
-metricsAddress: 127.0.0.1:9998
+metricsAddress: :9998
 
 # Enable pprof-compatible endpoint to monitor performances.
 pprof: no
