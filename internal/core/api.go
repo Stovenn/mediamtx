@@ -3,6 +3,7 @@ package core
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"reflect"
 	"strconv"
@@ -179,6 +180,11 @@ type apiWebRTCManager interface {
 	apiSessionsList() (*apiWebRTCSessionsList, error)
 	apiSessionsGet(uuid.UUID) (*apiWebRTCSession, error)
 	apiSessionsKick(uuid.UUID) error
+	apiRoomCreate() (uuid.UUID, error)
+	apiRoomGet(uuid.UUID) (*apiWebRTCRoom, error)
+	apiRoomRecord(uuid.UUID) error
+	apiRoomCleanup(uuid.UUID) error
+	apiRoomJoin(uuid.UUID, string) error
 }
 
 type apiSRTServer interface {
@@ -286,6 +292,11 @@ func newAPI(
 		group.GET("/v2/webrtcsessions/list", a.onWebRTCSessionsList)
 		group.GET("/v2/webrtcsessions/get/:id", a.onWebRTCSessionsGet)
 		group.POST("/v2/webrtcsessions/kick/:id", a.onWebRTCSessionsKick)
+		group.GET("/v2/webrtcrooms/get/:id", a.onWebRTCRoomGet)
+		group.POST("/v2/webrtcrooms/create", a.onWebRTCRoomCreate)
+		group.POST("/v2/webrtcrooms/join/:id", a.onWebRTCRoomJoin)
+		group.POST("/v2/webrtcrooms/record", a.onWebRTCRoomRecord)
+		group.POST("/v2/webrtcrooms/cleanup", a.onWebRTCRoomCleanup)
 	}
 
 	if !interfaceIsEmpty(a.srtServer) {
@@ -852,6 +863,94 @@ func (a *api) onWebRTCSessionsGet(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, data)
 }
 
+func (a *api) onWebRTCRoomGet(ctx *gin.Context) {
+	uuid, err := uuid.Parse(ctx.Param("id"))
+	if err != nil {
+		ctx.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
+	data, err := a.webRTCManager.apiRoomGet(uuid)
+	if err != nil {
+		abortWithError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, data)
+}
+
+
+func (a *api) onWebRTCRoomCreate(ctx *gin.Context) {
+	roomId, err := a.webRTCManager.apiRoomCreate()
+	if err != nil {
+		abortWithError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, roomId)
+}
+
+func (a *api) onWebRTCRoomJoin(ctx *gin.Context) {
+	uuid, err := uuid.Parse(ctx.Param("id"))
+	if err != nil {
+		ctx.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
+	streamID, err := io.ReadAll(ctx.Request.Body)
+			if err != nil {
+				return
+			}
+
+	err = a.webRTCManager.apiRoomJoin(uuid, string(streamID))
+	if err != nil {
+		abortWithError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, nil)
+}
+
+func (a *api) onWebRTCRoomRecord(ctx *gin.Context) {
+	uuid, err := uuid.Parse(ctx.Param("id"))
+	if err != nil {
+		ctx.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
+	streamID, err := io.ReadAll(ctx.Request.Body)
+			if err != nil {
+				return
+			}
+
+	err = a.webRTCManager.apiRoomJoin(uuid, string(streamID))
+	if err != nil {
+		abortWithError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, nil)
+}
+func (a *api) onWebRTCRoomCleanup(ctx *gin.Context) {
+	uuid, err := uuid.Parse(ctx.Param("id"))
+	if err != nil {
+		ctx.AbortWithStatus(http.StatusBadRequest)
+		return
+	}
+
+	streamID, err := io.ReadAll(ctx.Request.Body)
+			if err != nil {
+				return
+			}
+
+	err = a.webRTCManager.apiRoomJoin(uuid, string(streamID))
+	if err != nil {
+		abortWithError(ctx, err)
+		return
+	}
+
+	ctx.JSON(http.StatusOK, nil)
+}
 func (a *api) onWebRTCSessionsKick(ctx *gin.Context) {
 	uuid, err := uuid.Parse(ctx.Param("id"))
 	if err != nil {

@@ -185,7 +185,7 @@ webrtc: yes
 # Address of the WebRTC listener.
 webrtcAddress: :8889
 # Enable TLS/HTTPS on the WebRTC server.
-webrtcEncryption: yes
+webrtcEncryption: no
 # Path to the server key.
 # This can be generated with:
 # openssl genrsa -out server.key 2048

@@ -15,6 +15,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/pion/sdp/v3"
 	"github.com/pion/webrtc/v3"
+	wrtcmedia "github.com/pion/webrtc/v3/pkg/media"
+	"github.com/pion/webrtc/v3/pkg/media/h264writer"
+	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 
 	"github.com/bluenviron/mediamtx/internal/logger"
 	"github.com/bluenviron/mediamtx/internal/webrtcpc"
@@ -104,6 +107,7 @@ func webrtcGatherOutgoingTracks(medias media.Medias) ([]*webRTCOutgoingTrack, er
 func webrtcTrackCount(medias []*sdp.MediaDescription) (int, error) {
 	videoTrack := false
 	audioTrack := false
+	dataChan := false
 	trackCount := 0
 
 	for _, media := range medias {
@@ -119,7 +123,12 @@ func webrtcTrackCount(medias []*sdp.MediaDescription) (int, error) {
 				return 0, fmt.Errorf("only a single video and a single audio track are supported")
 			}
 			audioTrack = true
-
+		case "application": {
+			if dataChan {
+				return 0, fmt.Errorf("only a single data channel track is supported")
+			}
+			dataChan = true
+		}
 		default:
 			return 0, fmt.Errorf("unsupported media '%s'", media.MediaName.Media)
 		}
@@ -181,6 +190,7 @@ type webRTCSession struct {
 	wg              *sync.WaitGroup
 	pathManager     webRTCSessionPathManager
 	parent          *webRTCManager
+	writers			map[string]wrtcmedia.Writer
 
 	ctx       context.Context
 	ctxCancel func()
@@ -212,6 +222,7 @@ func newWebRTCSession(
 		wg:              wg,
 		parent:          parent,
 		pathManager:     pathManager,
+		writers: 		 make(map[string]wrtcmedia.Writer),
 		ctx:             ctx,
 		ctxCancel:       ctxCancel,
 		created:         time.Now(),
@@ -354,6 +365,12 @@ func (s *webRTCSession) runPublish() (int, error) {
 		}
 	})
 
+	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+			fmt.Println(string(msg.Data))
+		})
+	})
+
 	err = pc.SetRemoteDescription(*offer)
 	if err != nil {
 		return http.StatusBadRequest, err
@@ -403,7 +420,25 @@ func (s *webRTCSession) runPublish() (int, error) {
 	}
 
 	for _, track := range tracks {
-		track.start(rres.stream)
+		var writer wrtcmedia.Writer
+		var filename string
+		switch track.mediaType {
+		case media.TypeAudio: 
+			filename = fmt.Sprintf("streams/%s-%s.ogg", s.uuid.String(), media.TypeAudio)
+			writer, err = oggwriter.New(filename, 48000, 2)
+			if err != nil {
+				panic(err)
+			}
+			s.writers[filename] = writer
+		case media.TypeVideo: 
+			filename = fmt.Sprintf("streams/%s-%s.h264", s.uuid.String(), media.TypeVideo)
+			writer, err = h264writer.New(filename)
+			if err != nil {
+				panic(err)
+			}
+			s.writers[filename] = writer
+		}
+		track.start(rres.stream, writer, true)
 	}
 
 	select {

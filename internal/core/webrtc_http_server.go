@@ -3,7 +3,6 @@ package core
 import (
 	_ "embed"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -11,7 +10,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 	"github.com/pion/webrtc/v3"
 
 	"github.com/bluenviron/mediamtx/internal/conf"
@@ -69,7 +67,6 @@ func newWebRTCHTTPServer( //nolint:dupl
 
 	router := gin.New()
 	router.SetTrustedProxies(trustedProxies.ToTrustedProxies()) //nolint:errcheck
-	router.GET("/ws", wsHandler)
 	router.NoRoute(s.onRequest)
 
 	network, address := restrictNetwork("tcp", address)
@@ -89,23 +86,6 @@ func newWebRTCHTTPServer( //nolint:dupl
 	}
 
 	return s, nil
-}
-
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-}
-
-func wsHandler(c *gin.Context) {
-	conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
-	if err != nil {
-		return
-	}
-	defer conn.Close()
-	for {
-		conn.WriteMessage(websocket.TextMessage, []byte("Hello, WebSocket!"))
-		time.Sleep(time.Second)
-	}
 }
 
 func (s *webRTCHTTPServer) Log(level logger.Level, format string, args ...interface{}) {
@@ -222,6 +202,16 @@ func (s *webRTCHTTPServer) onRequest(ctx *gin.Context) {
 		}
 	}
 
+	type POSTBody struct {
+		Offer string `json:"offer"`
+		RoomID string `json:"roomID"`
+	}
+	type PATCHBody struct {
+		SDP string `json:"sdp"`
+		RoomID string `json:"roomID"`
+	}
+
+
 	switch fname {
 	case "":
 		ctx.Writer.Header().Set("Content-Type", "text/html")
@@ -231,7 +221,7 @@ func (s *webRTCHTTPServer) onRequest(ctx *gin.Context) {
 	case "publish":
 		ctx.Writer.Header().Set("Content-Type", "text/html")
 		ctx.Writer.WriteHeader(http.StatusOK)
-		ctx.Writer.Write(webrtcPublishIndex)
+		//ctx.Writer.Write(webrtcPublishIndex)
 
 	case "whip", "whep":
 		switch ctx.Request.Method {
@@ -252,19 +242,27 @@ func (s *webRTCHTTPServer) onRequest(ctx *gin.Context) {
 				ctx.Writer.WriteHeader(http.StatusBadRequest)
 				return
 			}
-
-			offer, err := io.ReadAll(ctx.Request.Body)
+			var body POSTBody
+			err := ctx.BindJSON(&body)
 			if err != nil {
 				return
 			}
 
+			fmt.Println(body.RoomID)
+
+			// offer, err := io.ReadAll(ctx.Request.Body)
+			// if err != nil {
+			// 	return
+			// }
+
 			res := s.parent.newSession(webRTCNewSessionReq{
 				pathName:   dir,
 				remoteAddr: remoteAddr,
+				roomID: body.RoomID,
 				query:      ctx.Request.URL.RawQuery,
 				user:       user,
 				pass:       pass,
-				offer:      offer,
+				offer:      []byte(body.Offer),
 				publish:    (fname == "whip"),
 			})
 			if res.err != nil {
@@ -288,6 +286,7 @@ func (s *webRTCHTTPServer) onRequest(ctx *gin.Context) {
 			ctx.Writer.WriteHeader(http.StatusCreated)
 			ctx.Writer.Write(res.answer)
 
+			
 		case http.MethodPatch:
 			secret, err := uuid.Parse(ctx.Request.Header.Get("If-Match"))
 			if err != nil {
@@ -300,18 +299,24 @@ func (s *webRTCHTTPServer) onRequest(ctx *gin.Context) {
 				return
 			}
 
-			byts, err := io.ReadAll(ctx.Request.Body)
+			var body PATCHBody
+			err = ctx.BindJSON(&body)
 			if err != nil {
 				return
 			}
+			// byts, err := io.ReadAll(ctx.Request.Body)
+			// if err != nil {
+			// 	return
+			// }
 
-			candidates, err := whip.ICEFragmentUnmarshal(byts)
+			candidates, err := whip.ICEFragmentUnmarshal([]byte(body.SDP))
 			if err != nil {
 				ctx.Writer.WriteHeader(http.StatusBadRequest)
 				return
 			}
 
 			res := s.parent.addSessionCandidates(webRTCAddSessionCandidatesReq{
+				roomID: body.RoomID,
 				secret:     secret,
 				candidates: candidates,
 			})

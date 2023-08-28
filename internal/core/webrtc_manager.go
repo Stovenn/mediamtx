@@ -237,9 +237,58 @@ type webRTCManagerAPISessionsKickRes struct {
 	err error
 }
 
+
 type webRTCManagerAPISessionsKickReq struct {
 	uuid uuid.UUID
 	res  chan webRTCManagerAPISessionsKickRes
+}
+
+type webRTCManagerAPIRoomsGetRes struct {
+	data *apiWebRTCRoom
+	err  error
+}
+
+type webRTCManagerAPIRoomsGetReq struct {
+	uuid uuid.UUID
+	res  chan webRTCManagerAPIRoomsGetRes
+}
+
+
+type webRTCManagerAPIRoomsCreateRes struct {
+	uuid uuid.UUID
+	err error
+}
+
+type webRTCManagerAPIRoomsCreateReq struct {
+	res  chan webRTCManagerAPIRoomsCreateRes
+}
+
+type webRTCManagerAPIRoomsJoinRes struct {
+	err error
+}
+
+type webRTCManagerAPIRoomsJoinReq struct {
+	uuid uuid.UUID
+	streamID string
+	res  chan webRTCManagerAPIRoomsJoinRes
+}
+
+type webRTCManagerAPIRoomsRecordRes struct {
+	err error
+}
+
+type webRTCManagerAPIRoomsRecordReq struct {
+	uuid uuid.UUID
+	res  chan webRTCManagerAPIRoomsRecordRes
+}
+
+type webRTCManagerAPIRoomsCleanupRes struct {
+	err error
+}
+
+type webRTCManagerAPIRoomsCleanupReq struct {
+	uuid uuid.UUID
+	res  chan webRTCManagerAPIRoomsCleanupRes
 }
 
 type webRTCNewSessionRes struct {
@@ -251,6 +300,7 @@ type webRTCNewSessionRes struct {
 
 type webRTCNewSessionReq struct {
 	pathName   string
+	roomID 	   string
 	remoteAddr string
 	query      string
 	user       string
@@ -266,6 +316,7 @@ type webRTCAddSessionCandidatesRes struct {
 }
 
 type webRTCAddSessionCandidatesReq struct {
+	roomID 	   string
 	secret     uuid.UUID
 	candidates []*webrtc.ICECandidateInit
 	res        chan webRTCAddSessionCandidatesRes
@@ -274,13 +325,6 @@ type webRTCAddSessionCandidatesReq struct {
 type webRTCManagerParent interface {
 	logger.Writer
 }
-
-type Room struct {
-	
-	id       string
-	sessions map[*webRTCSession]struct{}
-}
-
 type webRTCManager struct {
 	allowOrigin     string
 	trustedProxies  conf.IPsOrCIDRs
@@ -296,7 +340,7 @@ type webRTCManager struct {
 	udpMuxLn         net.PacketConn
 	tcpMuxLn         net.Listener
 	api              *webrtc.API
-	rooms            map[string]*Room
+	rooms            map[uuid.UUID]*Room
 	sessions         map[*webRTCSession]struct{}
 	sessionsBySecret map[uuid.UUID]*webRTCSession
 
@@ -306,7 +350,12 @@ type webRTCManager struct {
 	chAddSessionCandidates chan webRTCAddSessionCandidatesReq
 	chAPISessionsList      chan webRTCManagerAPISessionsListReq
 	chAPISessionsGet       chan webRTCManagerAPISessionsGetReq
+	chAPIRoomsGet       chan webRTCManagerAPIRoomsGetReq
 	chAPIConnsKick         chan webRTCManagerAPISessionsKickReq
+	chAPIRoomsCreation     chan webRTCManagerAPIRoomsCreateReq
+	chAPIRoomsJoin         chan webRTCManagerAPIRoomsJoinReq
+	chAPIRoomsRecord         chan webRTCManagerAPIRoomsRecordReq
+	chAPIRoomsCleanup        chan webRTCManagerAPIRoomsCleanupReq
 
 	// out
 	done chan struct{}
@@ -341,7 +390,7 @@ func newWebRTCManager(
 		parent:                 parent,
 		ctx:                    ctx,
 		ctxCancel:              ctxCancel,
-		rooms:                  make(map[string]*Room),
+		rooms:                  make(map[uuid.UUID]*Room),
 		sessions:               make(map[*webRTCSession]struct{}),
 		sessionsBySecret:       make(map[uuid.UUID]*webRTCSession),
 		chNewSession:           make(chan webRTCNewSessionReq),
@@ -350,6 +399,11 @@ func newWebRTCManager(
 		chAPISessionsList:      make(chan webRTCManagerAPISessionsListReq),
 		chAPISessionsGet:       make(chan webRTCManagerAPISessionsGetReq),
 		chAPIConnsKick:         make(chan webRTCManagerAPISessionsKickReq),
+		chAPIRoomsGet:     		make(chan webRTCManagerAPIRoomsGetReq),
+		chAPIRoomsCreation:     make(chan webRTCManagerAPIRoomsCreateReq),
+		chAPIRoomsJoin:    		make(chan webRTCManagerAPIRoomsJoinReq),
+		chAPIRoomsRecord:    	make(chan webRTCManagerAPIRoomsRecordReq),
+		chAPIRoomsCleanup:    	make(chan webRTCManagerAPIRoomsCleanupReq),
 		done:                   make(chan struct{}),
 	}
 
@@ -452,7 +506,15 @@ outer:
 				m,
 			)
 			m.sessions[sx] = struct{}{}
-			m.sessionsBySecret[sx.secret] = sx
+			parsedRoomID := uuid.MustParse(req.roomID)
+			 room := m.findRoomByUUID(parsedRoomID)
+			 room.sessions[sx] = struct{}{}
+			 room.sessionsBySecret[sx.secret] = sx
+			 if req.publish {
+				streamer := room.streamers[req.pathName]
+				streamer.session = sx
+			 }
+			 
 			req.res <- webRTCNewSessionRes{sx: sx}
 
 		case sx := <-m.chCloseSession:
@@ -460,7 +522,9 @@ outer:
 			delete(m.sessionsBySecret, sx.secret)
 
 		case req := <-m.chAddSessionCandidates:
-			sx, ok := m.sessionsBySecret[req.secret]
+			parsedRoomID := uuid.MustParse(req.roomID)
+			room := m.findRoomByUUID(parsedRoomID)
+			sx, ok := room.sessionsBySecret[req.secret]
 			if !ok {
 				req.res <- webRTCAddSessionCandidatesRes{err: fmt.Errorf("session not found")}
 				continue
@@ -504,6 +568,71 @@ outer:
 			sx.close()
 			req.res <- webRTCManagerAPISessionsKickRes{}
 
+		case req := <-m.chAPIRoomsGet:
+			r := m.findRoomByUUID(req.uuid)
+			if r == nil {
+				req.res <- webRTCManagerAPIRoomsGetRes{err: errAPINotFound}
+				continue
+			}
+			req.res <- webRTCManagerAPIRoomsGetRes{data:r.apiItem()}
+
+		case req := <- m.chAPIRoomsCreation: {
+			roomID := m.createRoom()
+			if roomID.String() == "" {
+				req.res <- webRTCManagerAPIRoomsCreateRes{err: errAPINotFound}
+				continue
+			}
+		
+			req.res <- webRTCManagerAPIRoomsCreateRes{uuid: roomID}
+		}
+		case req := <- m.chAPIRoomsJoin: {
+			 room := m.findRoomByUUID(req.uuid)
+			if room == nil {
+				req.res <- webRTCManagerAPIRoomsJoinRes{err: errAPINotFound}
+				continue
+			}
+
+			err:= room.join(req.streamID)
+			if err != nil {
+				req.res <- webRTCManagerAPIRoomsJoinRes{err: err}
+				continue
+			}
+		
+			req.res <- webRTCManagerAPIRoomsJoinRes{}
+		}
+
+		case req := <- m.chAPIRoomsRecord: {
+			room := m.findRoomByUUID(req.uuid)
+		   if room == nil {
+			   req.res <- webRTCManagerAPIRoomsRecordRes{err: errAPINotFound}
+			   continue
+		   }
+
+		   err:= room.record()
+		   if err != nil {
+			   req.res <- webRTCManagerAPIRoomsRecordRes{err: err}
+			   continue
+		   }
+	   
+		   req.res <- webRTCManagerAPIRoomsRecordRes{}
+	   }
+
+	   case req := <- m.chAPIRoomsCleanup: {
+		room := m.findRoomByUUID(req.uuid)
+	   if room == nil {
+		   req.res <- webRTCManagerAPIRoomsCleanupRes{err: errAPINotFound}
+		   continue
+	   }
+
+	   err := room.cleanup()
+	   if err != nil {
+		   req.res <- webRTCManagerAPIRoomsCleanupRes{err: err}
+		   continue
+	   }
+	   delete(m.rooms, room.uuid)
+   
+	   req.res <- webRTCManagerAPIRoomsCleanupRes{}
+   }
 		case <-m.ctx.Done():
 			break outer
 		}
@@ -528,6 +657,15 @@ func (m *webRTCManager) findSessionByUUID(uuid uuid.UUID) *webRTCSession {
 	for sx := range m.sessions {
 		if sx.uuid == uuid {
 			return sx
+		}
+	}
+	return nil
+}
+
+func (m *webRTCManager) findRoomByUUID(uuid uuid.UUID) *Room {
+	for rID, room := range m.rooms {
+		if rID == uuid {
+			return room
 		}
 	}
 	return nil
@@ -653,4 +791,106 @@ func (m *webRTCManager) apiSessionsKick(uuid uuid.UUID) error {
 	case <-m.ctx.Done():
 		return fmt.Errorf("terminated")
 	}
+}
+
+
+// apiRoomGet is called by api.
+func (m *webRTCManager) apiRoomGet(uuid uuid.UUID) (*apiWebRTCRoom, error) {
+	req := webRTCManagerAPIRoomsGetReq{
+		uuid: uuid,
+		res:  make(chan webRTCManagerAPIRoomsGetRes),
+	}
+
+	select {
+	case m.chAPIRoomsGet <- req:
+		res := <-req.res
+		return res.data, res.err
+
+	case <-m.ctx.Done():
+		return nil, fmt.Errorf("terminated")
+	}
+}
+
+// apiRoomCreate is called by api.
+func (m *webRTCManager) apiRoomCreate() (uuid.UUID, error) {
+	req := webRTCManagerAPIRoomsCreateReq{
+		res:  make(chan webRTCManagerAPIRoomsCreateRes),
+	}
+
+	select {
+	case m.chAPIRoomsCreation <- req:
+		res := <-req.res
+		return res.uuid, res.err
+
+	case <-m.ctx.Done():
+		return uuid.UUID{}, fmt.Errorf("terminated")
+	}
+}
+
+
+// apiRoomJoin is called by api.
+func (m *webRTCManager) apiRoomJoin(id uuid.UUID, streamID string) error {
+	req := webRTCManagerAPIRoomsJoinReq{
+		uuid:id,
+		streamID: streamID,
+		res:  make(chan webRTCManagerAPIRoomsJoinRes),
+	}
+
+	select {
+	case m.chAPIRoomsJoin <- req:
+		res := <-req.res
+		return res.err
+
+	case <-m.ctx.Done():
+		return fmt.Errorf("terminated")
+	}
+}
+
+// apiRoomRecord is called by api.
+func (m *webRTCManager) apiRoomRecord(id uuid.UUID) error {
+	req := webRTCManagerAPIRoomsRecordReq{
+		uuid:id,
+		res:  make(chan webRTCManagerAPIRoomsRecordRes),
+	}
+
+	select {
+	case m.chAPIRoomsRecord <- req:
+		res := <-req.res
+		return res.err
+
+	case <-m.ctx.Done():
+		return fmt.Errorf("terminated")
+	}
+}
+
+// apiRoomCleanup is called by api.
+func (m *webRTCManager) apiRoomCleanup(id uuid.UUID) error {
+	req := webRTCManagerAPIRoomsCleanupReq{
+		uuid: id,
+		res:  make(chan webRTCManagerAPIRoomsCleanupRes),
+	}
+
+	select {
+	case m.chAPIRoomsCleanup <- req:
+		res := <-req.res
+		return res.err
+
+	case <-m.ctx.Done():
+		return fmt.Errorf("terminated")
+	}
+}
+
+
+func (m *webRTCManager) createRoom() uuid.UUID {
+	roomID := uuid.New()
+	room :=&Room{
+		uuid: roomID,
+		recording: false,
+		streamers: map[string]*streamer{},
+		sessions: make(map[*webRTCSession]struct{}),
+		sessionsBySecret: make(map[uuid.UUID]*webRTCSession),
+	}
+	m.rooms[roomID] = room
+	
+	return roomID
 }

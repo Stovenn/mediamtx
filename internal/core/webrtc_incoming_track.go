@@ -9,6 +9,7 @@ import (
 	"github.com/bluenviron/gortsplib/v3/pkg/media"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
+	wrtcmedia "github.com/pion/webrtc/v3/pkg/media"
 
 	"github.com/bluenviron/mediamtx/internal/stream"
 )
@@ -98,13 +99,8 @@ func newWebRTCIncomingTrack(
 	return t, nil
 }
 
-func (t *webRTCIncomingTrack) start(stream *stream.Stream) {
+func (t *webRTCIncomingTrack) start(stream *stream.Stream, writer wrtcmedia.Writer, publish bool) {
 	go func() {
-		// w, err := h264writer.New("streams/test.h264")
-		// if err != nil {
-		// 	panic(err)
-		// }
-		// defer w.Close()
 		for {
 			pkt, _, err := t.track.ReadRTP()
 			if err != nil {
@@ -118,10 +114,12 @@ func (t *webRTCIncomingTrack) start(stream *stream.Stream) {
 
 			stream.WriteRTPPacket(t.media, t.format, pkt, time.Now())
 
-			// err = w.WriteRTP(pkt)
-			// if err != nil {
-			// 	continue
-			// }
+			if publish {
+				err := writer.WriteRTP(pkt)
+				if err != nil {
+					panic(err)
+				}
+			}
 		}
 	}()
 

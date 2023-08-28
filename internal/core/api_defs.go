@@ -147,6 +147,15 @@ type apiWebRTCSession struct {
 	BytesSent                 uint64                `json:"bytesSent"`
 }
 
+
+type apiWebRTCRoom struct {
+	ID                        uuid.UUID             `json:"id"`
+	Created                   time.Time             `json:"created"`
+	Paths                      []string                `json:"paths"`
+	Recording bool `json:"recording"`
+}
+
+
 type apiWebRTCSessionsList struct {
 	ItemCount int                 `json:"itemCount"`
 	PageCount int                 `json:"pageCount"`
