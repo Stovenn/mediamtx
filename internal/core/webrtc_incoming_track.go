@@ -99,7 +99,7 @@ func newWebRTCIncomingTrack(
 	return t, nil
 }
 
-func (t *webRTCIncomingTrack) start(stream *stream.Stream, writer wrtcmedia.Writer, publish bool) {
+func (t *webRTCIncomingTrack) start(stream *stream.Stream, writer wrtcmedia.Writer,room *Room, publish bool) {
 	go func() {
 		for {
 			pkt, _, err := t.track.ReadRTP()
@@ -114,7 +114,7 @@ func (t *webRTCIncomingTrack) start(stream *stream.Stream, writer wrtcmedia.Writ
 
 			stream.WriteRTPPacket(t.media, t.format, pkt, time.Now())
 
-			if publish {
+			if publish && room.recording {
 				err := writer.WriteRTP(pkt)
 				if err != nil {
 					panic(err)

@@ -154,7 +154,7 @@ func (s *webRTCSource) run(ctx context.Context, cnf *conf.PathConf, _ chan *conf
 	defer s.parent.setNotReady(pathSourceStaticSetNotReadyReq{})
 
 	for _, track := range tracks {
-		track.start(rres.stream, nil, false)
+		track.start(rres.stream, nil, nil, false)
 	}
 
 	select {

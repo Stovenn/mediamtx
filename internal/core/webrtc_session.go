@@ -196,6 +196,7 @@ type webRTCSession struct {
 	ctxCancel func()
 	created   time.Time
 	uuid      uuid.UUID
+	roomid    uuid.UUID
 	secret    uuid.UUID
 	mutex     sync.RWMutex
 	pc        *webrtcpc.PeerConnection
@@ -214,6 +215,10 @@ func newWebRTCSession(
 	parent *webRTCManager,
 ) *webRTCSession {
 	ctx, ctxCancel := context.WithCancel(parentCtx)
+	parsedRoomId, err := uuid.Parse(req.roomID)
+	if err != nil {
+		ctxCancel()
+	}
 
 	s := &webRTCSession{
 		readBufferCount: readBufferCount,
@@ -227,6 +232,7 @@ func newWebRTCSession(
 		ctxCancel:       ctxCancel,
 		created:         time.Now(),
 		uuid:            uuid.New(),
+		roomid:          parsedRoomId,
 		secret:          uuid.New(),
 		chNew:           make(chan webRTCNewSessionReq),
 		chAddCandidates: make(chan webRTCAddSessionCandidatesReq),
@@ -419,6 +425,7 @@ func (s *webRTCSession) runPublish() (int, error) {
 		return 0, rres.err
 	}
 
+	room := s.parent.findRoomByUUID(s.roomid)
 	for _, track := range tracks {
 		var writer wrtcmedia.Writer
 		var filename string
@@ -438,7 +445,7 @@ func (s *webRTCSession) runPublish() (int, error) {
 			}
 			s.writers[filename] = writer
 		}
-		track.start(rres.stream, writer, true)
+		track.start(rres.stream, writer, room, true)
 	}
 
 	select {

@@ -1,6 +1,10 @@
 package core
 
-import "github.com/google/uuid"
+import (
+	"fmt"
+
+	"github.com/google/uuid"
+)
 
 type Room struct {
 	uuid uuid.UUID 
@@ -45,17 +49,15 @@ func (r *Room) record() error {
 func (r *Room) cleanup() error {
 	for s := range r.sessions {
 		if len(s.writers) > 0 {
-			for _, w := range s.writers {
-				err := w.Close()
-				if err != nil {
-					return err
-				}
+			for filename, _ := range s.writers {
+				fmt.Println(filename)
 				//save file to S3
 				//delete file from disk
 			}
 		}
 		delete(r.sessions, s)
 		delete(r.sessionsBySecret, s.secret)
+		s.close()
 	}
 	for k := range r.streamers {
 		delete(r.streamers, k)

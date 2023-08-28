@@ -295,8 +295,8 @@ func newAPI(
 		group.GET("/v2/webrtcrooms/get/:id", a.onWebRTCRoomGet)
 		group.POST("/v2/webrtcrooms/create", a.onWebRTCRoomCreate)
 		group.POST("/v2/webrtcrooms/join/:id", a.onWebRTCRoomJoin)
-		group.POST("/v2/webrtcrooms/record", a.onWebRTCRoomRecord)
-		group.POST("/v2/webrtcrooms/cleanup", a.onWebRTCRoomCleanup)
+		group.POST("/v2/webrtcrooms/record/:id", a.onWebRTCRoomRecord)
+		group.POST("/v2/webrtcrooms/cleanup/:id", a.onWebRTCRoomCleanup)
 	}
 
 	if !interfaceIsEmpty(a.srtServer) {
@@ -918,12 +918,7 @@ func (a *api) onWebRTCRoomRecord(ctx *gin.Context) {
 		return
 	}
 
-	streamID, err := io.ReadAll(ctx.Request.Body)
-			if err != nil {
-				return
-			}
-
-	err = a.webRTCManager.apiRoomJoin(uuid, string(streamID))
+	err = a.webRTCManager.apiRoomRecord(uuid)
 	if err != nil {
 		abortWithError(ctx, err)
 		return
@@ -938,12 +933,7 @@ func (a *api) onWebRTCRoomCleanup(ctx *gin.Context) {
 		return
 	}
 
-	streamID, err := io.ReadAll(ctx.Request.Body)
-			if err != nil {
-				return
-			}
-
-	err = a.webRTCManager.apiRoomJoin(uuid, string(streamID))
+	err = a.webRTCManager.apiRoomCleanup(uuid)
 	if err != nil {
 		abortWithError(ctx, err)
 		return

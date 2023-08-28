@@ -508,6 +508,10 @@ outer:
 			m.sessions[sx] = struct{}{}
 			parsedRoomID := uuid.MustParse(req.roomID)
 			 room := m.findRoomByUUID(parsedRoomID)
+			 if room == nil {
+				req.res <- webRTCNewSessionRes{err: fmt.Errorf("room doesn't exists")}
+				continue
+			 }
 			 room.sessions[sx] = struct{}{}
 			 room.sessionsBySecret[sx.secret] = sx
 			 if req.publish {
@@ -524,6 +528,10 @@ outer:
 		case req := <-m.chAddSessionCandidates:
 			parsedRoomID := uuid.MustParse(req.roomID)
 			room := m.findRoomByUUID(parsedRoomID)
+			if room == nil {
+				req.res <- webRTCAddSessionCandidatesRes{err: fmt.Errorf("room doesn't exists")}
+				continue
+			}
 			sx, ok := room.sessionsBySecret[req.secret]
 			if !ok {
 				req.res <- webRTCAddSessionCandidatesRes{err: fmt.Errorf("session not found")}
