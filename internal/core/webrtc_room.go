@@ -96,7 +96,8 @@ func (r *Room) apiItem() *apiWebRTCRoom {
 }
 
 func (r *Room) record() error {
-	bucketName := strings.ReplaceAll(strings.ToLower(r.clubName), "", "-")
+	
+	bucketName := strings.ReplaceAll(strings.TrimSpace(strings.ToLower(r.clubName)), " ", "-")
 	err := r.s3Client.CreateBucket(bucketName, "eu-west-3")
 	if err != nil {
 		return err
