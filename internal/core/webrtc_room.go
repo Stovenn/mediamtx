@@ -29,15 +29,9 @@ func (c *s3Client) CreateBucket(name string, region string) error {
 		},
 	})
 	if err != nil {
-		switch err.(type) {
-		case *types.BucketAlreadyOwnedByYou: 
-		case *types.BucketAlreadyExists:
-			return nil
-		default:
 			log.Printf("Couldn't create bucket %v in Region %v. Here's why: %v\n",
 			name, region, err)
 			return err
-	}
 }
 return nil	
 }
@@ -99,7 +93,8 @@ func (r *Room) record() error {
 	bucketName := strings.ReplaceAll(strings.TrimSpace(strings.ToLower(r.clubName)), " ", "-")
 	err := r.s3Client.CreateBucket(bucketName, "eu-west-3")
 	if err != nil {
-		return err
+		//HANDLE Error !!!!
+		fmt.Println(err) 
 	}
 	r.recording = true
 	return nil
