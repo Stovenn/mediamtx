@@ -412,7 +412,7 @@ func (s *webRTCSession) runPublish() (int, error) {
 				}
 				defer file.Close()
 				//save file to S3
-				bucketName := strings.ToLower(room.clubName)
+				bucketName := strings.ReplaceAll(strings.TrimSpace(strings.ToLower(room.clubName)), " ", "-")
 				objectKey := fmt.Sprintf("%s/%s", room.eventName, filepath.Base(filename))
 
 				room.s3Client.UploadObject(bucketName, objectKey, file)

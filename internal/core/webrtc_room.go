@@ -96,7 +96,6 @@ func (r *Room) apiItem() *apiWebRTCRoom {
 }
 
 func (r *Room) record() error {
-	
 	bucketName := strings.ReplaceAll(strings.TrimSpace(strings.ToLower(r.clubName)), " ", "-")
 	err := r.s3Client.CreateBucket(bucketName, "eu-west-3")
 	if err != nil {
@@ -120,8 +119,7 @@ func (r *Room) cleanup() error {
 					defer file.Close()
 					//save file to S3
 
-					fmt.Println(filename)
-					bucketName := strings.ToLower(r.clubName)
+					bucketName := strings.ReplaceAll(strings.TrimSpace(strings.ToLower(r.clubName)), " ", "-")
 					objectKey := fmt.Sprintf("%s/%s", r.eventName, filepath.Base(filename))
 					r.s3Client.UploadObject(bucketName, objectKey, file)
 
