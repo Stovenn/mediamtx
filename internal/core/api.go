@@ -180,7 +180,7 @@ type apiWebRTCManager interface {
 	apiSessionsList() (*apiWebRTCSessionsList, error)
 	apiSessionsGet(uuid.UUID) (*apiWebRTCSession, error)
 	apiSessionsKick(uuid.UUID) error
-	apiRoomCreate() (uuid.UUID, error)
+	apiRoomCreate(string,string ) (uuid.UUID, error)
 	apiRoomGet(uuid.UUID) (*apiWebRTCRoom, error)
 	apiRoomRecord(uuid.UUID) error
 	apiRoomCleanup(uuid.UUID) error
@@ -879,9 +879,18 @@ func (a *api) onWebRTCRoomGet(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, data)
 }
 
-
+type CreateRoomBody struct {
+	ClubName string `json:"clubName"`
+	EventName string `json:"eventName"`
+}
 func (a *api) onWebRTCRoomCreate(ctx *gin.Context) {
-	roomId, err := a.webRTCManager.apiRoomCreate()
+	var body CreateRoomBody
+	err := ctx.BindJSON(&body)
+	if err != nil {
+		abortWithError(ctx, err)
+		return
+	}
+	roomId, err := a.webRTCManager.apiRoomCreate(body.ClubName, body.EventName)
 	if err != nil {
 		abortWithError(ctx, err)
 		return
@@ -898,9 +907,9 @@ func (a *api) onWebRTCRoomJoin(ctx *gin.Context) {
 	}
 
 	streamID, err := io.ReadAll(ctx.Request.Body)
-			if err != nil {
-				return
-			}
+	if err != nil {
+		return
+	}
 
 	err = a.webRTCManager.apiRoomJoin(uuid, string(streamID))
 	if err != nil {

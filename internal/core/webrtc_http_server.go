@@ -203,14 +203,13 @@ func (s *webRTCHTTPServer) onRequest(ctx *gin.Context) {
 	}
 
 	type POSTBody struct {
-		Offer string `json:"offer"`
+		Offer  string `json:"offer"`
 		RoomID string `json:"roomID"`
 	}
 	type PATCHBody struct {
-		SDP string `json:"sdp"`
+		SDP    string `json:"sdp"`
 		RoomID string `json:"roomID"`
 	}
-
 
 	switch fname {
 	case "":
@@ -248,17 +247,10 @@ func (s *webRTCHTTPServer) onRequest(ctx *gin.Context) {
 				return
 			}
 
-			fmt.Println(body.RoomID)
-
-			// offer, err := io.ReadAll(ctx.Request.Body)
-			// if err != nil {
-			// 	return
-			// }
-
 			res := s.parent.newSession(webRTCNewSessionReq{
 				pathName:   dir,
 				remoteAddr: remoteAddr,
-				roomID: body.RoomID,
+				roomID:     body.RoomID,
 				query:      ctx.Request.URL.RawQuery,
 				user:       user,
 				pass:       pass,
@@ -286,7 +278,6 @@ func (s *webRTCHTTPServer) onRequest(ctx *gin.Context) {
 			ctx.Writer.WriteHeader(http.StatusCreated)
 			ctx.Writer.Write(res.answer)
 
-			
 		case http.MethodPatch:
 			secret, err := uuid.Parse(ctx.Request.Header.Get("If-Match"))
 			if err != nil {
@@ -316,7 +307,7 @@ func (s *webRTCHTTPServer) onRequest(ctx *gin.Context) {
 			}
 
 			res := s.parent.addSessionCandidates(webRTCAddSessionCandidatesReq{
-				roomID: body.RoomID,
+				roomID:     body.RoomID,
 				secret:     secret,
 				candidates: candidates,
 			})

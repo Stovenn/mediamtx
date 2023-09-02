@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -117,23 +119,23 @@ func webrtcTrackCount(medias []*sdp.MediaDescription) (int, error) {
 				return 0, fmt.Errorf("only a single video and a single audio track are supported")
 			}
 			videoTrack = true
-
+			trackCount++
 		case "audio":
 			if audioTrack {
 				return 0, fmt.Errorf("only a single video and a single audio track are supported")
 			}
 			audioTrack = true
-		case "application": {
-			if dataChan {
-				return 0, fmt.Errorf("only a single data channel track is supported")
+			trackCount++
+		case "application":
+			{
+				if dataChan {
+					return 0, fmt.Errorf("only a single data channel track is supported")
+				}
+				dataChan = true
 			}
-			dataChan = true
-		}
 		default:
 			return 0, fmt.Errorf("unsupported media '%s'", media.MediaName.Media)
 		}
-
-		trackCount++
 	}
 
 	return trackCount, nil
@@ -190,7 +192,8 @@ type webRTCSession struct {
 	wg              *sync.WaitGroup
 	pathManager     webRTCSessionPathManager
 	parent          *webRTCManager
-	writers			map[string]wrtcmedia.Writer
+	writers         map[string]wrtcmedia.Writer
+	metadataFile    *File
 
 	ctx       context.Context
 	ctxCancel func()
@@ -227,7 +230,7 @@ func newWebRTCSession(
 		wg:              wg,
 		parent:          parent,
 		pathManager:     pathManager,
-		writers: 		 make(map[string]wrtcmedia.Writer),
+		writers:         make(map[string]wrtcmedia.Writer),
 		ctx:             ctx,
 		ctxCancel:       ctxCancel,
 		created:         time.Now(),
@@ -371,9 +374,52 @@ func (s *webRTCSession) runPublish() (int, error) {
 		}
 	})
 
+	room := s.parent.findRoomByUUID(s.roomid)
+
 	pc.OnDataChannel(func(dc *webrtc.DataChannel) {
+		dc.OnOpen(func() {
+			file := &File{}
+			filename := fmt.Sprintf("streams/%s/%s/%s-metadata.txt", room.clubName, room.eventName, s.uuid.String())
+			metadataFile, err := os.OpenFile(filename, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0777)
+			if err != nil {
+				fmt.Println(err)
+			}
+
+			file.Filename = filename
+			file.File = *metadataFile
+			s.metadataFile = file
+		})
+
 		dc.OnMessage(func(msg webrtc.DataChannelMessage) {
-			fmt.Println(string(msg.Data))
+			if room.recording {
+				line := msg.Data
+				line = append(line, byte(10))
+				s.metadataFile.WriteString(string(line))
+			}
+		})
+
+		dc.OnClose(func() {
+			s.metadataFile.Close()
+			if !room.recording {
+				os.Remove(s.metadataFile.Filename)
+			} else {
+				filename := s.metadataFile.Filename
+				fmt.Println(filename)
+
+				file, err := os.Open(filename)
+				if err != nil {
+					fmt.Println(err)
+				}
+				defer file.Close()
+				//save file to S3
+				bucketName := strings.ToLower(room.clubName)
+				objectKey := fmt.Sprintf("%s/%s", room.eventName, filepath.Base(filename))
+
+				room.s3Client.UploadObject(bucketName, objectKey, file)
+
+				//delete file from disk
+				os.Remove(file.Name())
+			}
 		})
 	})
 
@@ -425,20 +471,20 @@ func (s *webRTCSession) runPublish() (int, error) {
 		return 0, rres.err
 	}
 
-	room := s.parent.findRoomByUUID(s.roomid)
 	for _, track := range tracks {
 		var writer wrtcmedia.Writer
 		var filename string
 		switch track.mediaType {
-		case media.TypeAudio: 
-			filename = fmt.Sprintf("streams/%s-%s.ogg", s.uuid.String(), media.TypeAudio)
+		case media.TypeAudio:
+			// clubName is not unique for the moment, think of another way to build path in the future
+			filename = fmt.Sprintf("streams/%s/%s/%s-%s.ogg", room.clubName, room.eventName, s.uuid.String(), media.TypeAudio)
 			writer, err = oggwriter.New(filename, 48000, 2)
 			if err != nil {
 				panic(err)
 			}
 			s.writers[filename] = writer
-		case media.TypeVideo: 
-			filename = fmt.Sprintf("streams/%s-%s.h264", s.uuid.String(), media.TypeVideo)
+		case media.TypeVideo:
+			filename = fmt.Sprintf("streams/%s/%s/%s-%s.h264", room.clubName, room.eventName, s.uuid.String(), media.TypeVideo)
 			writer, err = h264writer.New(filename)
 			if err != nil {
 				panic(err)

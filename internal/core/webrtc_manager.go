@@ -6,14 +6,18 @@ import (
 	"crypto/rand"
 	"crypto/sha1"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/google/uuid"
 	"github.com/pion/ice/v2"
 	"github.com/pion/interceptor"
@@ -237,7 +241,6 @@ type webRTCManagerAPISessionsKickRes struct {
 	err error
 }
 
-
 type webRTCManagerAPISessionsKickReq struct {
 	uuid uuid.UUID
 	res  chan webRTCManagerAPISessionsKickRes
@@ -253,14 +256,15 @@ type webRTCManagerAPIRoomsGetReq struct {
 	res  chan webRTCManagerAPIRoomsGetRes
 }
 
-
 type webRTCManagerAPIRoomsCreateRes struct {
 	uuid uuid.UUID
-	err error
+	err  error
 }
 
 type webRTCManagerAPIRoomsCreateReq struct {
-	res  chan webRTCManagerAPIRoomsCreateRes
+	eventName string
+	clubName string
+	res chan webRTCManagerAPIRoomsCreateRes
 }
 
 type webRTCManagerAPIRoomsJoinRes struct {
@@ -268,9 +272,9 @@ type webRTCManagerAPIRoomsJoinRes struct {
 }
 
 type webRTCManagerAPIRoomsJoinReq struct {
-	uuid uuid.UUID
+	uuid     uuid.UUID
 	streamID string
-	res  chan webRTCManagerAPIRoomsJoinRes
+	res      chan webRTCManagerAPIRoomsJoinRes
 }
 
 type webRTCManagerAPIRoomsRecordRes struct {
@@ -300,7 +304,7 @@ type webRTCNewSessionRes struct {
 
 type webRTCNewSessionReq struct {
 	pathName   string
-	roomID 	   string
+	roomID     string
 	remoteAddr string
 	query      string
 	user       string
@@ -316,7 +320,7 @@ type webRTCAddSessionCandidatesRes struct {
 }
 
 type webRTCAddSessionCandidatesReq struct {
-	roomID 	   string
+	roomID     string
 	secret     uuid.UUID
 	candidates []*webrtc.ICECandidateInit
 	res        chan webRTCAddSessionCandidatesRes
@@ -350,12 +354,12 @@ type webRTCManager struct {
 	chAddSessionCandidates chan webRTCAddSessionCandidatesReq
 	chAPISessionsList      chan webRTCManagerAPISessionsListReq
 	chAPISessionsGet       chan webRTCManagerAPISessionsGetReq
-	chAPIRoomsGet       chan webRTCManagerAPIRoomsGetReq
+	chAPIRoomsGet          chan webRTCManagerAPIRoomsGetReq
 	chAPIConnsKick         chan webRTCManagerAPISessionsKickReq
 	chAPIRoomsCreation     chan webRTCManagerAPIRoomsCreateReq
 	chAPIRoomsJoin         chan webRTCManagerAPIRoomsJoinReq
-	chAPIRoomsRecord         chan webRTCManagerAPIRoomsRecordReq
-	chAPIRoomsCleanup        chan webRTCManagerAPIRoomsCleanupReq
+	chAPIRoomsRecord       chan webRTCManagerAPIRoomsRecordReq
+	chAPIRoomsCleanup      chan webRTCManagerAPIRoomsCleanupReq
 
 	// out
 	done chan struct{}
@@ -399,11 +403,11 @@ func newWebRTCManager(
 		chAPISessionsList:      make(chan webRTCManagerAPISessionsListReq),
 		chAPISessionsGet:       make(chan webRTCManagerAPISessionsGetReq),
 		chAPIConnsKick:         make(chan webRTCManagerAPISessionsKickReq),
-		chAPIRoomsGet:     		make(chan webRTCManagerAPIRoomsGetReq),
+		chAPIRoomsGet:          make(chan webRTCManagerAPIRoomsGetReq),
 		chAPIRoomsCreation:     make(chan webRTCManagerAPIRoomsCreateReq),
-		chAPIRoomsJoin:    		make(chan webRTCManagerAPIRoomsJoinReq),
-		chAPIRoomsRecord:    	make(chan webRTCManagerAPIRoomsRecordReq),
-		chAPIRoomsCleanup:    	make(chan webRTCManagerAPIRoomsCleanupReq),
+		chAPIRoomsJoin:         make(chan webRTCManagerAPIRoomsJoinReq),
+		chAPIRoomsRecord:       make(chan webRTCManagerAPIRoomsRecordReq),
+		chAPIRoomsCleanup:      make(chan webRTCManagerAPIRoomsCleanupReq),
 		done:                   make(chan struct{}),
 	}
 
@@ -507,21 +511,25 @@ outer:
 			)
 			m.sessions[sx] = struct{}{}
 			parsedRoomID := uuid.MustParse(req.roomID)
-			 room := m.findRoomByUUID(parsedRoomID)
-			 if room == nil {
+			room := m.findRoomByUUID(parsedRoomID)
+			if room == nil {
 				req.res <- webRTCNewSessionRes{err: fmt.Errorf("room doesn't exists")}
 				continue
-			 }
-			 room.sessions[sx] = struct{}{}
-			 room.sessionsBySecret[sx.secret] = sx
-			 if req.publish {
+			}
+			room.sessions[sx] = struct{}{}
+			room.sessionsBySecret[sx.secret] = sx
+			if req.publish {
 				streamer := room.streamers[req.pathName]
 				streamer.session = sx
-			 }
-			 
+			}
 			req.res <- webRTCNewSessionRes{sx: sx}
 
 		case sx := <-m.chCloseSession:
+			// room := m.findRoomByUUID(sx.roomid)
+			// if room != nil {
+			// 	delete(room.sessions, sx)
+			// 	delete(room.sessionsBySecret, sx.secret)
+			// }
 			delete(m.sessions, sx)
 			delete(m.sessionsBySecret, sx.secret)
 
@@ -582,65 +590,68 @@ outer:
 				req.res <- webRTCManagerAPIRoomsGetRes{err: errAPINotFound}
 				continue
 			}
-			req.res <- webRTCManagerAPIRoomsGetRes{data:r.apiItem()}
+			req.res <- webRTCManagerAPIRoomsGetRes{data: r.apiItem()}
 
-		case req := <- m.chAPIRoomsCreation: {
-			roomID := m.createRoom()
-			if roomID.String() == "" {
-				req.res <- webRTCManagerAPIRoomsCreateRes{err: errAPINotFound}
-				continue
+		case req := <-m.chAPIRoomsCreation:
+			{
+				roomID, err := m.createRoom(req.clubName, req.eventName)
+				if err != nil {
+					req.res <- webRTCManagerAPIRoomsCreateRes{err: err}
+					continue
+				}
+				req.res <- webRTCManagerAPIRoomsCreateRes{uuid: roomID}
 			}
-		
-			req.res <- webRTCManagerAPIRoomsCreateRes{uuid: roomID}
-		}
-		case req := <- m.chAPIRoomsJoin: {
-			 room := m.findRoomByUUID(req.uuid)
-			if room == nil {
-				req.res <- webRTCManagerAPIRoomsJoinRes{err: errAPINotFound}
-				continue
+		case req := <-m.chAPIRoomsJoin:
+			{
+				room := m.findRoomByUUID(req.uuid)
+				if room == nil {
+					req.res <- webRTCManagerAPIRoomsJoinRes{err: errAPINotFound}
+					continue
+				}
+
+				err := room.join(req.streamID)
+				if err != nil {
+					req.res <- webRTCManagerAPIRoomsJoinRes{err: err}
+					continue
+				}
+
+				req.res <- webRTCManagerAPIRoomsJoinRes{}
 			}
 
-			err:= room.join(req.streamID)
-			if err != nil {
-				req.res <- webRTCManagerAPIRoomsJoinRes{err: err}
-				continue
+		case req := <-m.chAPIRoomsRecord:
+			{
+				room := m.findRoomByUUID(req.uuid)
+				if room == nil {
+					req.res <- webRTCManagerAPIRoomsRecordRes{err: errAPINotFound}
+					continue
+				}
+
+				err := room.record()
+				if err != nil {
+					req.res <- webRTCManagerAPIRoomsRecordRes{err: err}
+					continue
+				}
+
+				req.res <- webRTCManagerAPIRoomsRecordRes{}
 			}
-		
-			req.res <- webRTCManagerAPIRoomsJoinRes{}
-		}
 
-		case req := <- m.chAPIRoomsRecord: {
-			room := m.findRoomByUUID(req.uuid)
-		   if room == nil {
-			   req.res <- webRTCManagerAPIRoomsRecordRes{err: errAPINotFound}
-			   continue
-		   }
+		case req := <-m.chAPIRoomsCleanup:
+			{
+				room := m.findRoomByUUID(req.uuid)
+				if room == nil {
+					req.res <- webRTCManagerAPIRoomsCleanupRes{err: errAPINotFound}
+					continue
+				}
 
-		   err:= room.record()
-		   if err != nil {
-			   req.res <- webRTCManagerAPIRoomsRecordRes{err: err}
-			   continue
-		   }
-	   
-		   req.res <- webRTCManagerAPIRoomsRecordRes{}
-	   }
+				err := room.cleanup()
+				if err != nil {
+					req.res <- webRTCManagerAPIRoomsCleanupRes{err: err}
+					continue
+				}
+				delete(m.rooms, room.uuid)
 
-	   case req := <- m.chAPIRoomsCleanup: {
-		room := m.findRoomByUUID(req.uuid)
-	   if room == nil {
-		   req.res <- webRTCManagerAPIRoomsCleanupRes{err: errAPINotFound}
-		   continue
-	   }
-
-	   err := room.cleanup()
-	   if err != nil {
-		   req.res <- webRTCManagerAPIRoomsCleanupRes{err: err}
-		   continue
-	   }
-	   delete(m.rooms, room.uuid)
-   
-	   req.res <- webRTCManagerAPIRoomsCleanupRes{}
-   }
+				req.res <- webRTCManagerAPIRoomsCleanupRes{}
+			}
 		case <-m.ctx.Done():
 			break outer
 		}
@@ -801,7 +812,6 @@ func (m *webRTCManager) apiSessionsKick(uuid uuid.UUID) error {
 	}
 }
 
-
 // apiRoomGet is called by api.
 func (m *webRTCManager) apiRoomGet(uuid uuid.UUID) (*apiWebRTCRoom, error) {
 	req := webRTCManagerAPIRoomsGetReq{
@@ -820,9 +830,11 @@ func (m *webRTCManager) apiRoomGet(uuid uuid.UUID) (*apiWebRTCRoom, error) {
 }
 
 // apiRoomCreate is called by api.
-func (m *webRTCManager) apiRoomCreate() (uuid.UUID, error) {
+func (m *webRTCManager) apiRoomCreate(clubName, eventName string) (uuid.UUID, error) {
 	req := webRTCManagerAPIRoomsCreateReq{
-		res:  make(chan webRTCManagerAPIRoomsCreateRes),
+		clubName: clubName,
+		eventName: eventName,
+		res: make(chan webRTCManagerAPIRoomsCreateRes),
 	}
 
 	select {
@@ -835,13 +847,12 @@ func (m *webRTCManager) apiRoomCreate() (uuid.UUID, error) {
 	}
 }
 
-
 // apiRoomJoin is called by api.
 func (m *webRTCManager) apiRoomJoin(id uuid.UUID, streamID string) error {
 	req := webRTCManagerAPIRoomsJoinReq{
-		uuid:id,
+		uuid:     id,
 		streamID: streamID,
-		res:  make(chan webRTCManagerAPIRoomsJoinRes),
+		res:      make(chan webRTCManagerAPIRoomsJoinRes),
 	}
 
 	select {
@@ -857,7 +868,7 @@ func (m *webRTCManager) apiRoomJoin(id uuid.UUID, streamID string) error {
 // apiRoomRecord is called by api.
 func (m *webRTCManager) apiRoomRecord(id uuid.UUID) error {
 	req := webRTCManagerAPIRoomsRecordReq{
-		uuid:id,
+		uuid: id,
 		res:  make(chan webRTCManagerAPIRoomsRecordRes),
 	}
 
@@ -888,17 +899,31 @@ func (m *webRTCManager) apiRoomCleanup(id uuid.UUID) error {
 	}
 }
 
-
-func (m *webRTCManager) createRoom() uuid.UUID {
+func (m *webRTCManager) createRoom(clubName string, eventName string) (uuid.UUID, error) {
 	roomID := uuid.New()
-	room :=&Room{
-		uuid: roomID,
-		recording: false,
-		streamers: map[string]*streamer{},
-		sessions: make(map[*webRTCSession]struct{}),
+	sdkConfig, err := config.LoadDefaultConfig(context.TODO())
+	if err != nil {
+		fmt.Println("Couldn't load default configuration. Have you set up your AWS account?")
+		fmt.Println(err)
+		return uuid.UUID{}, err
+	}
+
+	client := s3.NewFromConfig(sdkConfig)
+	room := &Room{
+		uuid:             roomID,
+		recording:        false,
+		clubName: clubName,
+		eventName: eventName,
+		streamers:        map[string]*streamer{},
+		s3Client:         &s3Client{S3Client: client},
+		sessions:         make(map[*webRTCSession]struct{}),
 		sessionsBySecret: make(map[uuid.UUID]*webRTCSession),
 	}
 	m.rooms[roomID] = room
-	
-	return roomID
+	roomDir := fmt.Sprintf("streams/%s/%s/", clubName, eventName)
+	err = os.MkdirAll(roomDir, os.ModePerm)
+	if err != nil && !errors.Is(err, os.ErrExist){
+		return uuid.UUID{}, err
+	}
+	return roomID, nil
 }

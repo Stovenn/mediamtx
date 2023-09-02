@@ -99,7 +99,7 @@ func newWebRTCIncomingTrack(
 	return t, nil
 }
 
-func (t *webRTCIncomingTrack) start(stream *stream.Stream, writer wrtcmedia.Writer,room *Room, publish bool) {
+func (t *webRTCIncomingTrack) start(stream *stream.Stream, writer wrtcmedia.Writer, room *Room, publish bool) {
 	go func() {
 		for {
 			pkt, _, err := t.track.ReadRTP()
