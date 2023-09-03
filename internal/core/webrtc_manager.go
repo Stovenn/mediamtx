@@ -525,11 +525,11 @@ outer:
 			req.res <- webRTCNewSessionRes{sx: sx}
 
 		case sx := <-m.chCloseSession:
-			// room := m.findRoomByUUID(sx.roomid)
-			// if room != nil {
-			// 	delete(room.sessions, sx)
-			// 	delete(room.sessionsBySecret, sx.secret)
-			// }
+			room := m.findRoomByUUID(sx.roomid)
+			if room != nil {
+				delete(room.sessions, sx)
+				delete(room.sessionsBySecret, sx.secret)
+			}
 			delete(m.sessions, sx)
 			delete(m.sessionsBySecret, sx.secret)
 
