@@ -15,7 +15,7 @@ readTimeout: 10s
 writeTimeout: 10s
 # Number of read buffers.
 # A higher value allows a wider throughput, a lower value allows to save RAM.
-readBufferCount: 512
+readBufferCount: 1024
 # Maximum size of payload of outgoing UDP packets.
 # This can be decreased to avoid fragmentation on networks with a low UDP MTU.
 udpMaxPayloadSize: 1472
@@ -218,7 +218,7 @@ webrtcICEServers2:
   password: turn123
 # List of public IP addresses that are to be used as a host.
 # This is used typically for servers that are behind 1:1 D-NAT.
-webrtcICEHostNAT1To1IPs: [35.180.120.145]
+webrtcICEHostNAT1To1IPs: [13.38.28.106]
 # Address of a ICE UDP listener in format host:port.
 # If filled, ICE traffic will pass through a single UDP port,
 # allowing the deployment of the server inside a container or behind a NAT.
