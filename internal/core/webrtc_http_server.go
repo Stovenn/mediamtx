@@ -215,7 +215,7 @@ func (s *webRTCHTTPServer) onRequest(ctx *gin.Context) {
 	case "":
 		ctx.Writer.Header().Set("Content-Type", "text/html")
 		ctx.Writer.WriteHeader(http.StatusOK)
-		ctx.Writer.Write(webrtcReadIndex)
+		// ctx.Writer.Write(webrtcReadIndex)
 
 	case "publish":
 		ctx.Writer.Header().Set("Content-Type", "text/html")

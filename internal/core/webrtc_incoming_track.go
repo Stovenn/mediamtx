@@ -104,6 +104,7 @@ func (t *webRTCIncomingTrack) start(stream *stream.Stream, writer wrtcmedia.Writ
 		for {
 			pkt, _, err := t.track.ReadRTP()
 			if err != nil {
+				fmt.Println(err)
 				return
 			}
 

@@ -18,7 +18,7 @@ import (
 	"github.com/pion/sdp/v3"
 	"github.com/pion/webrtc/v3"
 	wrtcmedia "github.com/pion/webrtc/v3/pkg/media"
-	"github.com/pion/webrtc/v3/pkg/media/ivfwriter"
+	"github.com/pion/webrtc/v3/pkg/media/h264writer"
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 
 	"github.com/bluenviron/mediamtx/internal/logger"
@@ -484,9 +484,8 @@ func (s *webRTCSession) runPublish() (int, error) {
 			}
 			s.writers[filename] = writer
 		case media.TypeVideo:
-			fmt.Println(track.track.Codec())
-			filename = fmt.Sprintf("streams/%s/%s/%s-%s.ivf", room.clubName, room.eventName, s.uuid.String(), media.TypeVideo)
-			writer, err = ivfwriter.New(filename)
+			filename = fmt.Sprintf("streams/%s/%s/%s-%s.h264", room.clubName, room.eventName, s.uuid.String(), media.TypeVideo)
+			writer, err = h264writer.New(filename)
 			if err != nil {
 				panic(err)
 			}
