@@ -465,7 +465,7 @@ func (s *webRTCSession) runPublish() (int, error) {
 	rres := res.path.startPublisher(pathStartPublisherReq{
 		author:             s,
 		medias:             medias,
-		generateRTPPackets: false,
+		generateRTPPackets: true,
 	})
 	if rres.err != nil {
 		return 0, rres.err
