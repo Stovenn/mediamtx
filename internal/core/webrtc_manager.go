@@ -513,14 +513,23 @@ outer:
 			parsedRoomID := uuid.MustParse(req.roomID)
 			room := m.findRoomByUUID(parsedRoomID)
 			if room == nil {
-				req.res <- webRTCNewSessionRes{err: fmt.Errorf("room doesn't exists")}
+				req.res <- webRTCNewSessionRes{err: fmt.Errorf("cannot create session: room doesn't exists")}
 				continue
 			}
 			room.sessions[sx] = struct{}{}
 			room.sessionsBySecret[sx.secret] = sx
 			if req.publish {
-				streamer := room.streamers[req.pathName]
-				streamer.session = sx
+	
+				s := room.streamers[req.pathName]
+				if s == nil {
+					room.streamers[req.pathName] = &streamer{ 
+						id: req.pathName,
+					}
+					room.streamers[req.pathName].session = sx
+				} else {
+					s.session = sx
+				}
+				
 			}
 			req.res <- webRTCNewSessionRes{sx: sx}
 
