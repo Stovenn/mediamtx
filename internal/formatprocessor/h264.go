@@ -2,7 +2,6 @@ package formatprocessor
 
 import (
 	"bytes"
-	"fmt"
 	"time"
 
 	"github.com/bluenviron/gortsplib/v3/pkg/formats"
