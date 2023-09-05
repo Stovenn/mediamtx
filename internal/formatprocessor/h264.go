@@ -236,7 +236,6 @@ func (t *formatProcessorH264) Process(unit Unit, hasNonRTSPReaders bool) error {
 
 	if tunit.RTPPackets != nil {
 		pkt := tunit.RTPPackets[0]
-		fmt.Println(pkt)
 		t.updateTrackParametersFromRTPPacket(pkt)
 
 		if t.encoder == nil {
