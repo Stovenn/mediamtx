@@ -2,7 +2,6 @@ package core
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/bluenviron/gortsplib/v3/pkg/formats"
@@ -221,7 +220,7 @@ func newWebRTCOutgoingTrackVideo(medias media.Medias) (*webRTCOutgoingTrack, err
 					lastPTS = tunit.PTS
 				} else {
 					if tunit.PTS < lastPTS {
-						return fmt.Errorf("WebRTC doesn't support H264 streams with B-frames")
+						//return fmt.Errorf("WebRTC doesn't support H264 streams with B-frames")
 					}
 					lastPTS = tunit.PTS
 				}
