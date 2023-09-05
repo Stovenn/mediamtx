@@ -213,7 +213,7 @@ webrtcICEServers2:
   username: ''
   password: ''
 
-- url: turn:13.39.156.102:3478
+- url: turn:15.237.58.100:3478
   username: turn
   password: turn123
 # List of public IP addresses that are to be used as a host.
